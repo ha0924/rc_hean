@@ -1,0 +1,22 @@
+### Maven ###
+target/
+**/target/
+
+### IntelliJ IDEA ###
+.idea/
+*.iml
+
+### VS Code ###
+.vscode/
+
+### macOS ###
+.DS_Store
+
+### Runtime ###
+logs/
+*.log
+
+### Local configuration ###
+.env
+application-local.yml
+**/application-local.yml
