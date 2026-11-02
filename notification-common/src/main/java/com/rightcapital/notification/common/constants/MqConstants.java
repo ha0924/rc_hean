@@ -6,6 +6,8 @@ public final class MqConstants {
     public static final String DELIVERY_TAG = "delivery-task";
     public static final String TRANSACTION_PRODUCER_GROUP = "notification-tx-producer";
     public static final String DELIVERY_CONSUMER_GROUP = "notification-delivery-worker";
+    public static final String DELIVERY_DLQ_TOPIC = "%DLQ%" + DELIVERY_CONSUMER_GROUP;
+    public static final String DELIVERY_DLQ_CONSUMER_GROUP = "notification-delivery-dlq-worker";
 
     private MqConstants() {
     }
