@@ -47,31 +47,42 @@ MySQL、RocketMQ 和 DLQ 是架构组件，不是独立 Maven 模块。DLQ Handl
 
 ### 配置管理端：`notification-admin`
 
-为平台管理员提供配置 CRUD，并通过 Flyway 管理 MySQL 表结构。
+负责维护平台配置，并通过 Flyway 管理表结构迁移。
 
-- 管理内部业务系统及其 `accessKey`、Secret 哈希和启停状态；Secret 使用 BCrypt 哈希保存，不返回给管理端调用方。
-- 管理事件定义、外部 HTTP Endpoint 和事件到 Endpoint 的路由关系。
-- Endpoint 配置包含 HTTP 方法、URL、默认 Header、超时、并发上限、鉴权类型和成功/重试规则等基础信息。
-- 初版约束为一个事件只配置一条启用的投递路由，因此一次通知对应一个 `delivery_task`。
+配置链路：业务系统 → 事件类型 → 外部 Endpoint → 通知路由。Producer 根据业务系统和事件校验请求；Consumer 根据路由和 Endpoint 获取外部调用配置。
 
 ### 通知接入 API / 生产者：`notification-api`
 
-供内部业务系统提交通知请求，负责入站鉴权、请求幂等以及将任务可靠投递至 RocketMQ。
+供内部业务系统提交通知请求，并可靠地生产 RocketMQ 投递任务。
 
-- 使用 `X-Access-Key` 和 `X-Access-Secret` 鉴权；Secret 通过 HTTPS 传输并用 BCrypt 比对。
-- 支持两层请求幂等：优先采用调用方的 `Idempotency-Key`；未提供时，使用稳定的 `requestId + applicationId + eventDefinitionId + 规范化 payload` 生成幂等键。两者都缺失时拒绝请求。
-- `notification(application_id, idempotency_key)` 唯一索引是最终并发保护；相同键且相同请求返回已有通知，不同内容复用同一键返回冲突。
-- 先发送 RocketMQ 半消息，再在本地事务中创建 `notification` 与 `delivery_task`。本地事务成功则提交消息，失败则回滚；事务回查依据 `delivery_task` 是否存在决定提交或回滚。
+生产链路：内部请求 → 鉴权 → 幂等校验 → 本地落库 → RocketMQ 事务消息。
+
+- 两层幂等：优先使用业务系统提供的 `Idempotency-Key`；缺失时使用 `requestId` 和规范化 payload 生成幂等键。
+- `notification` 唯一键负责并发排斥：相同请求返回已有通知，不同内容复用同一键则拒绝。
+- RocketMQ 半消息与本地 `notification`、`delivery_task` 创建通过事务消息保持一致；回查根据任务是否存在决定提交或回滚。
 
 ### 投递消费者：`notification-worker`
 
-消费 `notification-delivery` Topic，调用外部 HTTP(S) API，并将投递结果持久化。
+消费 `notification-delivery` Topic，负责真正调用外部 API。
 
-- 通过条件更新原子抢占 `PENDING`、`RETRY_WAIT` 或锁已过期的 `PROCESSING` 任务；终态或仍被锁定的重复消息直接 ACK。
-- HTTP 调用不包裹数据库长事务。请求携带 `X-Notification-Id`、`Idempotency-Key: {deliveryTaskId}` 和 `X-Trace-Id`，让外部系统可以处理重复调用。
-- 2xx 标记为 `SUCCEEDED`；网络异常、408、429、5xx 标记为 `RETRY_WAIT` 并请求 RocketMQ 重投；其他 4xx 标记为 `FAILED`。
-- 普通 Consumer 的重试次数固定为 5 次。超过次数进入 `%DLQ%notification-delivery-worker`，DLQ Consumer 将任务和通知最终标记为 `FAILED`。
-- 初版直接透传通知 `payload` 作为外部 HTTP Body，且仅启用 `auth_type=NONE`。字段映射 DSL、加密凭据或密钥引用解析是后续扩展能力。
+消费链路：RocketMQ 消息 → 原子抢占任务 → 外部 HTTP 请求 → 更新投递状态 → ACK 或重试。
+
+- 条件更新和租约锁保证重复消息不会并发调用同一个外部 API。
+- 调用外部 API 时固定携带 `Idempotency-Key: {deliveryTaskId}`，由目标系统处理重复请求。
+- 2xx 成功；网络异常、408、429、5xx 交给 RocketMQ 重试；其他 4xx 直接失败。重试耗尽后进入 DLQ，由 DLQ Consumer 最终标记失败。
+
+初版直接透传通知 `payload` 作为外部 HTTP Body，仅启用 `auth_type=NONE`；字段映射、加密凭据或密钥引用解析是后续扩展能力。
+
+## 核心表设计
+
+| 表 | 作用 |
+| --- | --- |
+| `business_application` | 注册可接入平台的内部业务系统，保存调用凭证和启停状态。 |
+| `event_definition` | 定义业务系统允许发送的事件类型及其 Payload 约束。 |
+| `external_endpoint` | 描述要调用的外部 HTTP API，包括地址、方法、超时和调用规则。 |
+| `notification_route` | 建立内部事件到外部 Endpoint 的投递路由。初版一个事件只有一条启用路由。 |
+| `notification` | 记录一次内部通知请求，承担生产端请求幂等、原始 Payload 保存和通知总体状态。 |
+| `delivery_task` | 记录一次具体外部投递，承担 Consumer 抢占锁、重试次数、HTTP 调用结果和最终投递状态。 |
 
 ## 技术基线
 
@@ -87,21 +98,3 @@ MySQL、RocketMQ 和 DLQ 是架构组件，不是独立 Maven 模块。DLQ Handl
 ```bash
 mvn clean verify
 ```
-
-## 文档
-
-- [API 通知服务开发方案](docs/api-notification-service-development-plan.md)
-- [技术选型与模块设计](docs/technology-and-module-design.md)
-
-## 当前状态
-
-已完成：
-
-- Maven 多模块工程骨架
-- Flyway 版本化数据库迁移
-- 配置实体校验、JDBC Repository、事务性应用服务与 REST CRUD 接口
-- 通知接入 API：鉴权、两层幂等、唯一键并发保护和异常响应
-- RocketMQ 事务消息生产：半消息、本地事务和基于任务存在性的事务回查
-- 投递 Worker：任务原子抢占、HTTP 投递、外部幂等键、结果分类与状态流转
-- RocketMQ 重试与 DLQ Consumer 的最终失败收敛
-- 覆盖生产、消费、HTTP 适配和 MySQL 状态流转的单元/集成测试
