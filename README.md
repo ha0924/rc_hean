@@ -38,7 +38,8 @@ notification-platform
 ├── notification-api      # 内部通知接入和事务消息生产者
 ├── notification-worker   # 正常消费、外部投递和 DLQ 处理
 ├── docs                  # 方案和技术设计文档
-└── infrastructure        # MySQL 与 RocketMQ 引导说明
+├── infrastructure        # MySQL 与 RocketMQ 引导说明
+└── session               # 本次面试作业的 Codex 会话记录
 ```
 
 MySQL、RocketMQ 和 DLQ 是架构组件，不是独立 Maven 模块。DLQ Handler 位于 `notification-worker` 中。
