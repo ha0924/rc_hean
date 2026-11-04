@@ -56,6 +56,7 @@ class NotificationSubmissionServiceTest {
                 new BcryptSecretVerifier(),
                 jsonHasher,
                 new IdempotencyKeyResolver(jsonHasher),
+                new PayloadSchemaValidator(objectMapper),
                 transactionProducer
         );
         when(applicationRepository.findActiveByAccessKey("subscription-access-key")).thenReturn(Optional.of(
@@ -66,7 +67,9 @@ class NotificationSubmissionServiceTest {
                 )
         ));
         when(eventRepository.findActiveByApplicationIdAndEventCode(11L, "subscription.payment_succeeded"))
-                .thenReturn(Optional.of(new ConfiguredEvent(21L, "subscription.payment_succeeded")));
+                .thenReturn(Optional.of(new ConfiguredEvent(
+                        21L, "subscription.payment_succeeded", "{\"type\":\"object\"}"
+                )));
         when(routeRepository.findActiveByEventDefinitionId(21L))
                 .thenReturn(java.util.List.of(new ActiveDeliveryRoute(31L, 41L)));
     }
@@ -168,6 +171,24 @@ class NotificationSubmissionServiceTest {
         assertThat(acceptance).isEqualTo(new NotificationAcceptance(
                 "existing-notification", NotificationStatus.ACCEPTED, true
         ));
+    }
+
+    @Test
+    void rejectsPayloadBeforeIdempotencyOrTransactionWhenItViolatesEventSchema() throws Exception {
+        when(eventRepository.findActiveByApplicationIdAndEventCode(11L, "subscription.payment_succeeded"))
+                .thenReturn(Optional.of(new ConfiguredEvent(
+                        21L,
+                        "subscription.payment_succeeded",
+                        "{\"type\":\"object\",\"required\":[\"contactId\"],\"properties\":{\"contactId\":{\"type\":\"string\"}}}"
+                )));
+
+        assertThatThrownBy(() -> service.submit(command(
+                "payment-0001", null, objectMapper.readTree("{\"contactId\":100}")
+        )))
+                .isInstanceOf(PayloadSchemaValidationException.class);
+
+        verify(notificationRepository, never()).findByApplicationIdAndIdempotencyKey(anyLong(), anyString());
+        verify(transactionProducer, never()).send(any(NotificationTransactionCommand.class));
     }
 
     private NotificationSubmissionCommand command(String idempotencyKey, String requestId, JsonNode payload) {

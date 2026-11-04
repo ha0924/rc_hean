@@ -8,6 +8,7 @@ import com.rightcapital.notification.admin.domain.configuration.ExternalEndpoint
 import com.rightcapital.notification.admin.domain.configuration.ExternalEndpointRepository;
 import com.rightcapital.notification.admin.domain.configuration.NotificationRoute;
 import com.rightcapital.notification.admin.domain.configuration.NotificationRouteRepository;
+import com.rightcapital.notification.admin.security.EndpointHostPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,19 +23,28 @@ public class ConfigurationManagementService {
     private final ExternalEndpointRepository externalEndpointRepository;
     private final NotificationRouteRepository notificationRouteRepository;
     private final SecretHasher secretHasher;
+    private final EventSchemaValidator eventSchemaValidator;
+    private final DeliveryConfigurationValidator deliveryConfigurationValidator;
+    private final EndpointHostPolicy endpointHostPolicy;
 
     public ConfigurationManagementService(
             BusinessApplicationRepository businessApplicationRepository,
             EventDefinitionRepository eventDefinitionRepository,
             ExternalEndpointRepository externalEndpointRepository,
             NotificationRouteRepository notificationRouteRepository,
-            SecretHasher secretHasher
+            SecretHasher secretHasher,
+            EventSchemaValidator eventSchemaValidator,
+            DeliveryConfigurationValidator deliveryConfigurationValidator,
+            EndpointHostPolicy endpointHostPolicy
     ) {
         this.businessApplicationRepository = businessApplicationRepository;
         this.eventDefinitionRepository = eventDefinitionRepository;
         this.externalEndpointRepository = externalEndpointRepository;
         this.notificationRouteRepository = notificationRouteRepository;
         this.secretHasher = secretHasher;
+        this.eventSchemaValidator = eventSchemaValidator;
+        this.deliveryConfigurationValidator = deliveryConfigurationValidator;
+        this.endpointHostPolicy = endpointHostPolicy;
     }
 
     public BusinessApplication createBusinessApplication(BusinessApplicationCommand command) {
@@ -65,12 +75,14 @@ public class ConfigurationManagementService {
 
     public EventDefinition createEventDefinition(EventDefinition eventDefinition) {
         requireBusinessApplication(eventDefinition.applicationId());
+        eventSchemaValidator.validate(eventDefinition.payloadSchema());
         return eventDefinitionRepository.insert(withoutId(eventDefinition));
     }
 
     public EventDefinition updateEventDefinition(long id, EventDefinition eventDefinition) {
         getEventDefinition(id);
         requireBusinessApplication(eventDefinition.applicationId());
+        eventSchemaValidator.validate(eventDefinition.payloadSchema());
         return eventDefinitionRepository.update(withId(id, eventDefinition));
     }
 
@@ -92,11 +104,13 @@ public class ConfigurationManagementService {
     }
 
     public ExternalEndpoint createExternalEndpoint(ExternalEndpoint endpoint) {
+        validateEndpoint(endpoint);
         return externalEndpointRepository.insert(withoutId(endpoint));
     }
 
     public ExternalEndpoint updateExternalEndpoint(long id, ExternalEndpoint endpoint) {
         getExternalEndpoint(id);
+        validateEndpoint(endpoint);
         return externalEndpointRepository.update(withId(id, endpoint));
     }
 
@@ -119,14 +133,14 @@ public class ConfigurationManagementService {
 
     public NotificationRoute createNotificationRoute(NotificationRoute route) {
         requireEventDefinition(route.eventDefinitionId());
-        requireExternalEndpoint(route.externalEndpointId());
+        deliveryConfigurationValidator.validate(route, getExternalEndpoint(route.externalEndpointId()));
         return notificationRouteRepository.insert(withoutId(route));
     }
 
     public NotificationRoute updateNotificationRoute(long id, NotificationRoute route) {
         getNotificationRoute(id);
         requireEventDefinition(route.eventDefinitionId());
-        requireExternalEndpoint(route.externalEndpointId());
+        deliveryConfigurationValidator.validate(route, getExternalEndpoint(route.externalEndpointId()));
         return notificationRouteRepository.update(withId(id, route));
     }
 
@@ -160,6 +174,11 @@ public class ConfigurationManagementService {
         );
     }
 
+    private void validateEndpoint(ExternalEndpoint endpoint) {
+        endpointHostPolicy.validate(endpoint.urlTemplate());
+        deliveryConfigurationValidator.validate(endpoint);
+    }
+
     private void requireBusinessApplication(long id) {
         if (!businessApplicationRepository.existsById(id)) {
             throw new ConfigurationNotFoundException("business application", id);
@@ -169,12 +188,6 @@ public class ConfigurationManagementService {
     private void requireEventDefinition(long id) {
         if (!eventDefinitionRepository.existsById(id)) {
             throw new ConfigurationNotFoundException("event definition", id);
-        }
-    }
-
-    private void requireExternalEndpoint(long id) {
-        if (!externalEndpointRepository.existsById(id)) {
-            throw new ConfigurationNotFoundException("external endpoint", id);
         }
     }
 

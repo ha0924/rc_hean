@@ -38,7 +38,7 @@ notification-platform
 ├── notification-api      # 内部通知接入和事务消息生产者
 ├── notification-worker   # 正常消费、外部投递和 DLQ 处理
 ├── docs                  # 方案和技术设计文档
-├── infrastructure        # MySQL 与 RocketMQ 引导说明
+├── infrastructure        # MySQL、RocketMQ Docker Compose 与本地验收说明
 └── session               # 本次面试作业的 Codex 会话记录
 ```
 
@@ -48,7 +48,7 @@ MySQL、RocketMQ 和 DLQ 是架构组件，不是独立 Maven 模块。DLQ Handl
 
 ### 配置管理端：`notification-admin`
 
-负责维护平台配置，并通过 Flyway 管理表结构迁移。
+负责维护平台配置，并通过 Flyway 管理表结构迁移。接口以 `X-Admin-Api-Key`（BCrypt 校验）保护；Endpoint 仅允许配置在明确的 HTTPS Host Allowlist 内，避免任意地址转发。
 
 配置链路：业务系统 → 事件类型 → 外部 Endpoint → 通知路由。Producer 根据业务系统和事件校验请求；Consumer 根据路由和 Endpoint 获取外部调用配置。
 
@@ -70,9 +70,9 @@ MySQL、RocketMQ 和 DLQ 是架构组件，不是独立 Maven 模块。DLQ Handl
 
 - 条件更新和租约锁保证重复消息不会并发调用同一个外部 API。
 - 调用外部 API 时固定携带 `Idempotency-Key: {deliveryTaskId}`，由目标系统处理重复请求。
-- 2xx 成功；网络异常、408、429、5xx 交给 RocketMQ 重试；其他 4xx 直接失败。重试耗尽后进入 DLQ，由 DLQ Consumer 最终标记失败。
-
-初版直接透传通知 `payload` 作为外部 HTTP Body，仅启用 `auth_type=NONE`；字段映射、加密凭据或密钥引用解析是后续扩展能力。
+- Route 配置可映射 URL Path、Query、动态 Header，以及 JSON、表单或 XML Body；Endpoint 支持 Bearer、API Key、Basic 鉴权，并通过 `env:` 密钥引用读取敏感值。
+- Endpoint 的成功/重试规则和单 Worker 实例的并发上限在运行时生效。重试耗尽后进入 DLQ，由 DLQ Consumer 最终标记失败。
+- Worker 在发送前再次校验 HTTPS Host Allowlist，避免配置被绕过后向内网地址请求。
 
 ## 核心表设计
 
@@ -99,3 +99,7 @@ MySQL、RocketMQ 和 DLQ 是架构组件，不是独立 Maven 模块。DLQ Handl
 ```bash
 mvn clean verify
 ```
+
+## 本地运行
+
+执行环境变量初始化、Docker Compose 启动、Topic 创建、服务启动与健康检查的完整步骤见 [infrastructure/README.md](infrastructure/README.md)。

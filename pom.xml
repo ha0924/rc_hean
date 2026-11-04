@@ -29,6 +29,7 @@
         <java.version>21</java.version>
         <flyway.version>11.15.0</flyway.version>
         <rocketmq-spring.version>2.3.6</rocketmq-spring.version>
+        <json-schema-validator.version>2.0.4</json-schema-validator.version>
     </properties>
 
     <dependencyManagement>

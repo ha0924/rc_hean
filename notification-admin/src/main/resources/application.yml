@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: notification-admin
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:notification_platform}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: ${MYSQL_USERNAME:notification}
@@ -21,3 +23,8 @@ management:
     web:
       exposure:
         include: health,info
+
+notification:
+  admin:
+    api-key-hash: ${ADMIN_API_KEY_HASH:}
+    allowed-endpoint-hosts: ${NOTIFICATION_ALLOWED_ENDPOINT_HOSTS:}

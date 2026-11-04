@@ -5,6 +5,7 @@ import com.rightcapital.notification.worker.domain.DeliveryConfigurationExceptio
 import com.rightcapital.notification.worker.domain.DeliveryExecutionResult;
 import com.rightcapital.notification.worker.domain.DeliveryTaskDetail;
 import com.rightcapital.notification.worker.domain.DeliveryTaskRepository;
+import com.rightcapital.notification.worker.domain.EndpointConcurrencyLimiter;
 import com.rightcapital.notification.worker.domain.ExternalApiClient;
 import com.rightcapital.notification.worker.domain.HttpDeliveryResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,18 +28,22 @@ class DeliveryExecutionServiceTest {
 
     private final DeliveryTaskRepository taskRepository = mock(DeliveryTaskRepository.class);
     private final ExternalApiClient externalApiClient = mock(ExternalApiClient.class);
+    private final EndpointConcurrencyLimiter concurrencyLimiter = mock(EndpointConcurrencyLimiter.class);
     private DeliveryExecutionService service;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         service = new DeliveryExecutionService(
                 taskRepository,
                 externalApiClient,
-                new DeliveryResultClassifier(),
+                new DeliveryResultClassifier(new com.fasterxml.jackson.databind.ObjectMapper()),
+                concurrencyLimiter,
                 new WorkerIdentity(),
                 Clock.fixed(Instant.parse("2026-11-03T00:00:00Z"), ZoneOffset.UTC)
         );
         when(taskRepository.findByTaskId("task-1")).thenReturn(Optional.of(task()));
+        when(concurrencyLimiter.acquire(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(() -> { });
     }
 
     @Test
@@ -110,7 +115,8 @@ class DeliveryExecutionServiceTest {
     private DeliveryTaskDetail task() {
         return new DeliveryTaskDetail(
                 "task-1", "notification-1", 3L, "{\"amount\":100}", "trace-1",
-                "POST", "https://example.test/callback", "NONE", null, "{\"Accept\":\"application/json\"}", 5000
+                "POST", "https://example.test/callback", "NONE", null, "{\"Accept\":\"application/json\"}", 5000,
+                8, "{}", "{}", "{}"
         );
     }
 }

@@ -195,7 +195,7 @@ public class ConfigurationController {
                 request.httpMethod(),
                 request.urlTemplate(),
                 request.authType(),
-                request.authConfig(),
+                jsonOrNull(request.authConfig()),
                 request.defaultHeaders() == null ? null : json(request.defaultHeaders()),
                 request.timeoutMs(),
                 request.maxConcurrency(),
@@ -238,6 +238,10 @@ public class ConfigurationController {
 
     private String json(JsonNode node) {
         return node.toString();
+    }
+
+    private String jsonOrNull(JsonNode node) {
+        return node == null || node.isNull() ? null : json(node);
     }
 
     private JsonNode readJson(String json) {

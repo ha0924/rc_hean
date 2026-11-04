@@ -26,6 +26,7 @@ public class NotificationSubmissionService {
     private final BcryptSecretVerifier secretVerifier;
     private final CanonicalJsonHasher jsonHasher;
     private final IdempotencyKeyResolver idempotencyKeyResolver;
+    private final PayloadSchemaValidator payloadSchemaValidator;
     private final NotificationTransactionProducer transactionProducer;
 
     public NotificationSubmissionService(
@@ -36,6 +37,7 @@ public class NotificationSubmissionService {
             BcryptSecretVerifier secretVerifier,
             CanonicalJsonHasher jsonHasher,
             IdempotencyKeyResolver idempotencyKeyResolver,
+            PayloadSchemaValidator payloadSchemaValidator,
             NotificationTransactionProducer transactionProducer
     ) {
         this.applicationRepository = applicationRepository;
@@ -45,6 +47,7 @@ public class NotificationSubmissionService {
         this.secretVerifier = secretVerifier;
         this.jsonHasher = jsonHasher;
         this.idempotencyKeyResolver = idempotencyKeyResolver;
+        this.payloadSchemaValidator = payloadSchemaValidator;
         this.transactionProducer = transactionProducer;
     }
 
@@ -54,6 +57,7 @@ public class NotificationSubmissionService {
         }
         AuthenticatedApplication application = authenticate(command.accessKey(), command.secret());
         ConfiguredEvent event = findEvent(application.id(), command.eventCode());
+        payloadSchemaValidator.validate(event.payloadSchema(), command.payload());
         ActiveDeliveryRoute route = findOnlyActiveRoute(event.id());
         CanonicalJsonHasher.CanonicalJson canonicalPayload = jsonHasher.canonicalize(command.payload());
         String idempotencyKey = idempotencyKeyResolver.resolve(

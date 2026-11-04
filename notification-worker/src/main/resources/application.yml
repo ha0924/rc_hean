@@ -17,6 +17,7 @@ notification:
   delivery:
     topic: notification-delivery
     consumer-group: notification-delivery-worker
+    allowed-endpoint-hosts: ${NOTIFICATION_ALLOWED_ENDPOINT_HOSTS:}
 
 management:
   endpoints:

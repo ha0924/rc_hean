@@ -30,7 +30,11 @@ class JdbcDeliveryTaskRepository implements DeliveryTaskRepository {
             resultSet.getString("auth_type"),
             resultSet.getString("auth_config"),
             resultSet.getString("default_headers"),
-            resultSet.getInt("timeout_ms")
+            resultSet.getInt("timeout_ms"),
+            resultSet.getInt("max_concurrency"),
+            resultSet.getString("success_rule"),
+            resultSet.getString("retryable_rule"),
+            resultSet.getString("request_mapping")
     );
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -52,9 +56,14 @@ class JdbcDeliveryTaskRepository implements DeliveryTaskRepository {
                        endpoint.auth_type,
                        endpoint.auth_config,
                        endpoint.default_headers,
-                       endpoint.timeout_ms
+                       endpoint.timeout_ms,
+                       endpoint.max_concurrency,
+                       endpoint.success_rule,
+                       endpoint.retryable_rule,
+                       route.request_mapping
                 FROM delivery_task task
                 JOIN notification notification ON notification.id = task.notification_id
+                JOIN notification_route route ON route.id = task.route_id
                 JOIN external_endpoint endpoint ON endpoint.id = task.endpoint_id
                 WHERE task.id = :taskId
                 """, new MapSqlParameterSource("taskId", taskId), TASK_ROW_MAPPER).stream().findFirst();

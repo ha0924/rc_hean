@@ -15,7 +15,7 @@ public record ExternalEndpointRequest(
         @NotNull EndpointHttpMethod httpMethod,
         @NotBlank @Size(max = 2048) String urlTemplate,
         @NotNull EndpointAuthType authType,
-        String authConfig,
+        JsonNode authConfig,
         JsonNode defaultHeaders,
         @Positive int timeoutMs,
         @Positive int maxConcurrency,

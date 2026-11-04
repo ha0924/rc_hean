@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,6 +30,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class ConfigurationCrudIntegrationTest {
 
+    private static final String ADMIN_API_KEY = "admin-test-key";
+    private static final String ADMIN_API_KEY_HASH = new BCryptPasswordEncoder().encode(ADMIN_API_KEY);
+
     @Container
     private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("notification_platform")
@@ -49,6 +53,8 @@ class ConfigurationCrudIntegrationTest {
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
+        registry.add("notification.admin.api-key-hash", () -> ADMIN_API_KEY_HASH);
+        registry.add("notification.admin.allowed-endpoint-hosts", () -> "crm.example.com,example.com");
     }
 
     @Test
@@ -87,7 +93,7 @@ class ConfigurationCrudIntegrationTest {
                   "httpMethod": "POST",
                   "urlTemplate": "https://crm.example.com/contacts/{contactId}",
                   "authType": "BEARER",
-                  "authConfig": "vault://crm/token",
+                  "authConfig": {"secretRef":"env:CRM_TOKEN"},
                   "defaultHeaders": {"X-Source":"subscription"},
                   "timeoutMs": 5000,
                   "maxConcurrency": 8,
@@ -104,17 +110,19 @@ class ConfigurationCrudIntegrationTest {
                 {
                   "eventDefinitionId": %d,
                   "externalEndpointId": %d,
-                  "requestMapping": {"body":{"contactId":"$.contactId"}},
+                "requestMapping": {"pathVariables":{"contactId":{"from":"/contactId"}},"body":{"type":"JSON","template":{"contactId":{"from":"/contactId"}}}},
                   "status": "ACTIVE"
                 }
                 """.formatted(eventDefinitionId, endpointId));
 
-        mockMvc.perform(get("/api/admin/notification-routes/{id}", route.path("id").asLong()))
+        mockMvc.perform(get("/api/admin/notification-routes/{id}", route.path("id").asLong())
+                        .header("X-Admin-Api-Key", ADMIN_API_KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.requestMapping.body.contactId").value("$.contactId"));
+                .andExpect(jsonPath("$.requestMapping.body.type").value("JSON"));
 
         mockMvc.perform(put("/api/admin/business-applications/{id}", applicationId)
                         .contentType(APPLICATION_JSON)
+                .header("X-Admin-Api-Key", ADMIN_API_KEY)
                         .content("""
                                 {
                                   "code": "subscription-service",
@@ -128,7 +136,8 @@ class ConfigurationCrudIntegrationTest {
                 .andExpect(jsonPath("$.name").value("Subscription Service v2"))
                 .andExpect(jsonPath("$.status").value("DISABLED"));
 
-        mockMvc.perform(delete("/api/admin/business-applications/{id}", applicationId))
+        mockMvc.perform(delete("/api/admin/business-applications/{id}", applicationId)
+                        .header("X-Admin-Api-Key", ADMIN_API_KEY))
                 .andExpect(status().isConflict());
 
         JsonNode disposableEndpoint = postJson("/api/admin/external-endpoints", """
@@ -147,15 +156,43 @@ class ConfigurationCrudIntegrationTest {
                 """);
         long disposableEndpointId = disposableEndpoint.path("id").asLong();
 
-        mockMvc.perform(delete("/api/admin/external-endpoints/{id}", disposableEndpointId))
+        mockMvc.perform(delete("/api/admin/external-endpoints/{id}", disposableEndpointId)
+                        .header("X-Admin-Api-Key", ADMIN_API_KEY))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/admin/external-endpoints/{id}", disposableEndpointId))
+        mockMvc.perform(get("/api/admin/external-endpoints/{id}", disposableEndpointId)
+                        .header("X-Admin-Api-Key", ADMIN_API_KEY))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectsUnauthenticatedAdminRequestsAndUnapprovedEndpointHosts() throws Exception {
+        mockMvc.perform(get("/api/admin/business-applications"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/admin/external-endpoints")
+                        .header("X-Admin-Api-Key", ADMIN_API_KEY)
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "code": "internal-metadata",
+                                  "name": "Internal Metadata",
+                                  "httpMethod": "GET",
+                                  "urlTemplate": "https://localhost/private",
+                                  "authType": "NONE",
+                                  "timeoutMs": 1000,
+                                  "maxConcurrency": 1,
+                                  "successRule": {"ranges":["2xx"]},
+                                  "retryableRule": {"ranges":["5xx"]},
+                                  "status": "ACTIVE"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
     }
 
     private JsonNode postJson(String path, String body) throws Exception {
         MvcResult result = mockMvc.perform(post(path)
                         .contentType(APPLICATION_JSON)
+                        .header("X-Admin-Api-Key", ADMIN_API_KEY)
                         .content(body))
                 .andExpect(status().isCreated())
                 .andReturn();

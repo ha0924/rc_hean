@@ -14,7 +14,8 @@ class JdbcEventConfigurationRepository implements EventConfigurationRepository {
 
     private static final RowMapper<ConfiguredEvent> ROW_MAPPER = (resultSet, rowNum) -> new ConfiguredEvent(
             resultSet.getLong("id"),
-            resultSet.getString("event_code")
+            resultSet.getString("event_code"),
+            resultSet.getString("payload_schema")
     );
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -26,7 +27,7 @@ class JdbcEventConfigurationRepository implements EventConfigurationRepository {
     @Override
     public Optional<ConfiguredEvent> findActiveByApplicationIdAndEventCode(long applicationId, String eventCode) {
         return jdbc.query("""
-                SELECT id, event_code
+                SELECT id, event_code, payload_schema
                 FROM event_definition
                 WHERE application_id = :applicationId
                   AND event_code = :eventCode

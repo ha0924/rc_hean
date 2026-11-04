@@ -12,6 +12,10 @@ public record DeliveryTaskDetail(
         String authType,
         String authConfig,
         String defaultHeaders,
-        int timeoutMs
+        int timeoutMs,
+        int maxConcurrency,
+        String successRule,
+        String retryableRule,
+        String requestMapping
 ) {
 }

@@ -6,6 +6,7 @@ import com.rightcapital.notification.api.application.notification.NotificationAc
 import com.rightcapital.notification.api.application.notification.NotificationAuthenticationException;
 import com.rightcapital.notification.api.application.notification.NotificationConfigurationException;
 import com.rightcapital.notification.api.application.notification.NotificationMessagingException;
+import com.rightcapital.notification.api.application.notification.PayloadSchemaValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,11 @@ class NotificationApiExceptionHandler {
 
     @ExceptionHandler(NotificationConfigurationException.class)
     ResponseEntity<NotificationApiError> unprocessable(NotificationConfigurationException exception, HttpServletRequest request) {
+        return error(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PayloadSchemaValidationException.class)
+    ResponseEntity<NotificationApiError> invalidPayload(PayloadSchemaValidationException exception, HttpServletRequest request) {
         return error(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage(), request);
     }
 
